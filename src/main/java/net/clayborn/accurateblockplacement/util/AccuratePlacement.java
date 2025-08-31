@@ -3,23 +3,25 @@ package net.clayborn.accurateblockplacement.util;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import net.clayborn.accurateblockplacement.AccurateBlockPlacementMod;
+import net.clayborn.accurateblockplacement.AcePlacerClient;
 import net.clayborn.accurateblockplacement.mixin.KeyBindingAccessor;
-import net.minecraft.block.AbstractBlock;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.StairsBlock;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.*;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.HitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.*;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,7 +45,7 @@ public class AccuratePlacement {
 
         for (Method method : methods) {
             Class<?>[] types = method.getParameterTypes();
-            if (types.length == 3 && types[0] == World.class && types[1] == PlayerEntity.class && types[2] == Hand.class) {
+            if (types.length == 3 && types[0] == Level.class && types[1] == Player.class && types[2] == InteractionHand.class) {
                 targetMethod = method.getName();
                 break;
             }
@@ -61,7 +63,7 @@ public class AccuratePlacement {
                 if (itemUseMethodName == null) return false;
 
                 try {
-                    return !item.getClass().getMethod(itemUseMethodName, World.class, PlayerEntity.class, Hand.class).getDeclaringClass().equals(Item.class);
+                    return !item.getClass().getMethod(itemUseMethodName, Level.class, Player.class, InteractionHand.class).getDeclaringClass().equals(Item.class);
                 } catch (Exception e) {
                     return false;
                 }
@@ -69,15 +71,15 @@ public class AccuratePlacement {
         });
 
         // now check for block activation methods
-        methods = AbstractBlock.class.getDeclaredMethods();
+        methods = BlockBehaviour.class.getDeclaredMethods();
         targetMethod = null;
 
         for (Method method : methods) {
             Class<?>[] types = method.getParameterTypes();
 
-            if (types.length == 5 && types[0] == BlockState.class && types[1] == World.class
-                && types[2] == BlockPos.class && types[3] == PlayerEntity.class
-                && types[4] == BlockHitResult.class) {
+            if (types.length == 5 && types[0] == BlockState.class && types[1] == Level.class
+                    && types[2] == BlockPos.class && types[3] == Player.class
+                    && types[4] == BlockHitResult.class) {
                 targetMethod = method.getName();
                 break;
             }
@@ -95,7 +97,7 @@ public class AccuratePlacement {
                 if (blockActivateMethodName == null) return false;
 
                 try {
-                    return !block.getClass().getDeclaredMethod(blockActivateMethodName, BlockState.class, World.class, BlockPos.class, PlayerEntity.class, BlockHitResult.class).getDeclaringClass().equals(AbstractBlock.class);
+                    return !block.getClass().getDeclaredMethod(blockActivateMethodName, BlockState.class, Level.class, BlockPos.class, Player.class, BlockHitResult.class).getDeclaringClass().equals(BlockBehaviour.class);
                 } catch (Exception e) {
                     return false;
                 }
@@ -106,11 +108,11 @@ public class AccuratePlacement {
     private final ArrayList<HitResult> backFillList = new ArrayList<>();
     private BlockPos lastSeenBlockPos = null;
     private BlockPos lastPlacedBlockPos = null;
-    private Vec3d lastPlayerPlacedBlockPos = null;
+    private Vec3 lastPlayerPlacedBlockPos = null;
     private Boolean autoRepeatWaitingOnCooldown = true;
-    private Vec3d lastFreshPressMouseRatio = null;
+    private Vec3 lastFreshPressMouseRatio = null;
     private Item lastItemInUse = null;
-    private Hand handOfCurrentItemInUse;
+    private InteractionHand handOfCurrentItemInUse;
 
     private static boolean doesItemHaveOverriddenUseMethod(Item item) {
         if (itemUseMethodName == null) return false;
@@ -133,8 +135,8 @@ public class AccuratePlacement {
     }
 
     public void update() {
-        if (!AccurateBlockPlacementMod.isAccurateBlockPlacementEnabled) {
-            AccurateBlockPlacementMod.disableNormalItemUse = false;
+        if (!AcePlacerClient.isAccurateBlockPlacementEnabled) {
+            AcePlacerClient.disableNormalItemUse = false;
             this.lastSeenBlockPos = null;
             this.lastPlacedBlockPos = null;
             this.lastPlayerPlacedBlockPos = null;
@@ -145,25 +147,25 @@ public class AccuratePlacement {
             return;
         }
 
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
 
-        if (client == null || client.options == null || client.options.useKey == null || client.crosshairTarget == null
-            || client.player == null || client.world == null || client.mouse == null || client.getWindow() == null) {
+        if (client == null || client.options == null || client.options.keyUse == null || client.hitResult == null
+                || client.player == null || client.level == null || client.mouseHandler == null || client.getWindow() == null) {
             return;
         }
 
         tryPlace(client);
     }
 
-    private void tryPlace(MinecraftClient client) {
-        AccurateBlockPlacementMod.disableNormalItemUse = false;
+    private void tryPlace(Minecraft client) {
+        AcePlacerClient.disableNormalItemUse = false;
 
-        final PlayerEntity player = client.player;
+        final Player player = client.player;
         if (player == null) return;
 
         Item currentItem = this.getItemInUse(player);
 
-        final boolean freshKeyPress = ((KeyBindingAccessor) client.options.useKey).getTimesPressed() > 0;
+        final boolean freshKeyPress = ((KeyBindingAccessor) client.options.keyUse).getClickCount() > 0;
 
         if (freshKeyPress) {
             freshKeyPress(client, currentItem);
@@ -171,51 +173,51 @@ public class AccuratePlacement {
 
         if (!isPlacementItem(currentItem) || isTargetingSomethingElse(client)) return;
 
-        Hand otherHand = this.handOfCurrentItemInUse == Hand.MAIN_HAND ? Hand.OFF_HAND : Hand.MAIN_HAND;
-        ItemStack otherHandItemStack = player.getStackInHand(otherHand);
+        InteractionHand otherHand = this.handOfCurrentItemInUse == InteractionHand.MAIN_HAND ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
+        ItemStack otherHandItemStack = player.getItemInHand(otherHand);
 
         if (isInteractingWithOtherHand(player, otherHandItemStack)) return;
 
-        BlockHitResult blockHitResult = (BlockHitResult) client.crosshairTarget;
+        BlockHitResult blockHitResult = (BlockHitResult) client.hitResult;
         if (blockHitResult == null) return;
 
         BlockPos blockHitPos = blockHitResult.getBlockPos();
 
-        World world = client.world;
+        Level world = client.level;
         if (world == null) return;
 
         Block targetBlock = world.getBlockState(blockHitPos).getBlock();
 
-        if (isBlockActivatable(targetBlock) && !(targetBlock instanceof StairsBlock) && !player.isSneaking()
-            || !freshKeyPress && !client.options.useKey.isPressed()) return;
+        if (isBlockActivatable(targetBlock) && !(targetBlock instanceof StairBlock) && !player.isShiftKeyDown()
+                || !freshKeyPress && !client.options.keyUse.isDown()) return;
 
-        AccurateBlockPlacementMod.disableNormalItemUse = true;
+        AcePlacerClient.disableNormalItemUse = true;
 
-        ItemPlacementContext targetPlacement = new ItemPlacementContext(new ItemUsageContext(player, this.handOfCurrentItemInUse, blockHitResult));
-        Block oldBlock = world.getBlockState(targetPlacement.getBlockPos()).getBlock();
+        BlockPlaceContext targetPlacement = new BlockPlaceContext(new UseOnContext(player, this.handOfCurrentItemInUse, blockHitResult));
+        Block oldBlock = world.getBlockState(targetPlacement.getClickedPos()).getBlock();
 
         double facingAxisPlayerPos = 0.0;
         double facingAxisPlayerLastPos = 0.0;
         double facingAxisLastPlacedPos = 0.0;
 
         if (this.lastPlacedBlockPos != null && this.lastPlayerPlacedBlockPos != null) {
-            Direction.Axis axis = targetPlacement.getSide().getAxis();
+            Direction.Axis axis = targetPlacement.getClickedFace().getAxis();
 
-            facingAxisPlayerPos = player.getPos().getComponentAlongAxis(axis);
-            facingAxisPlayerLastPos = this.lastPlayerPlacedBlockPos.getComponentAlongAxis(axis);
-            facingAxisLastPlacedPos = new Vec3d(this.lastPlacedBlockPos.getX(), this.lastPlacedBlockPos.getY(), this.lastPlacedBlockPos.getZ()).getComponentAlongAxis(axis);
+            facingAxisPlayerPos = player.position().get(axis);
+            facingAxisPlayerLastPos = this.lastPlayerPlacedBlockPos.get(axis);
+            facingAxisLastPlacedPos = new Vec3(this.lastPlacedBlockPos.getX(), this.lastPlacedBlockPos.getY(), this.lastPlacedBlockPos.getZ()).get(axis);
 
-            if (targetPlacement.getSide().getName().equals("west") || targetPlacement.getSide().getName().equals("north")) {
+            if (targetPlacement.getClickedFace().getName().equals("west") || targetPlacement.getClickedFace().getName().equals("north")) {
                 ++facingAxisLastPlacedPos;
             }
         }
 
-        Vec3d currentMouseRatio = null;
+        Vec3 currentMouseRatio = null;
 
         if (client.getWindow().getWidth() > 0 && client.getWindow().getHeight() > 0) {
-            currentMouseRatio = new Vec3d(
-                    client.mouse.getX() / (double) client.getWindow().getWidth(),
-                    client.mouse.getY() / (double) client.getWindow().getHeight(),
+            currentMouseRatio = new Vec3(
+                    client.mouseHandler.xpos() / (double) client.getWindow().getWidth(),
+                    client.mouseHandler.ypos() / (double) client.getWindow().getHeight(),
                     0.0
             );
         }
@@ -224,16 +226,16 @@ public class AccuratePlacement {
 
         boolean isPlacementTargetFresh =
                 ((this.lastSeenBlockPos == null || !this.lastSeenBlockPos.equals(blockHitPos))
-                 && (this.lastPlacedBlockPos == null || !this.lastPlacedBlockPos.equals(blockHitPos))
+                        && (this.lastPlacedBlockPos == null || !this.lastPlacedBlockPos.equals(blockHitPos))
                 ) || (this.lastPlacedBlockPos != null
-                      && this.lastPlayerPlacedBlockPos != null
-                      && this.lastPlacedBlockPos.equals(blockHitPos)
-                      && Math.abs(facingAxisPlayerLastPos - facingAxisPlayerPos) >= 0.99
-                      && Math.abs(facingAxisPlayerLastPos - facingAxisLastPlacedPos) < Math.abs(facingAxisPlayerPos - facingAxisLastPlacedPos)
+                        && this.lastPlayerPlacedBlockPos != null
+                        && this.lastPlacedBlockPos.equals(blockHitPos)
+                        && Math.abs(facingAxisPlayerLastPos - facingAxisPlayerPos) >= 0.99
+                        && Math.abs(facingAxisPlayerLastPos - facingAxisLastPlacedPos) < Math.abs(facingAxisPlayerPos - facingAxisLastPlacedPos)
                 );
 
         boolean hasMouseMoved = currentMouseRatio != null && this.lastFreshPressMouseRatio != null && this.lastFreshPressMouseRatio.distanceTo(currentMouseRatio) >= 0.1;
-        boolean isOnCooldown = this.autoRepeatWaitingOnCooldown && clientAccessor.accurateblockplacement_GetItemUseCooldown() > 0 && !hasMouseMoved;
+        boolean isOnCooldown = this.autoRepeatWaitingOnCooldown && clientAccessor.accurateblockplacement_GetRightClickDelay() > 0 && !hasMouseMoved;
 
         if (this.lastItemInUse != currentItem) {
             this.lastSeenBlockPos = blockHitResult.getBlockPos();
@@ -242,7 +244,7 @@ public class AccuratePlacement {
 
         if (!freshKeyPress && (!isPlacementTargetFresh || isOnCooldown)) {
             if (isPlacementTargetFresh) {
-                this.backFillList.add(client.crosshairTarget);
+                this.backFillList.add(client.hitResult);
             }
 
             this.lastSeenBlockPos = blockHitResult.getBlockPos();
@@ -251,33 +253,33 @@ public class AccuratePlacement {
 
         if (this.autoRepeatWaitingOnCooldown && !freshKeyPress) {
             this.autoRepeatWaitingOnCooldown = false;
-            HitResult currentHitResult = client.crosshairTarget;
+            HitResult currentHitResult = client.hitResult;
 
             for (HitResult prevHitResult : this.backFillList) {
-                client.crosshairTarget = prevHitResult;
-                clientAccessor.accurateblockplacement_DoItemUseBypassDisable();
+                client.hitResult = prevHitResult;
+                clientAccessor.accurateblockplacement_StartUseItemBypassDisable();
             }
 
             this.backFillList.clear();
-            client.crosshairTarget = currentHitResult;
+            client.hitResult = currentHitResult;
         }
 
-        for (boolean runOnceFlag = !freshKeyPress; runOnceFlag || client.options.useKey.wasPressed(); runOnceFlag = false) {
-            clientAccessor.accurateblockplacement_DoItemUseBypassDisable();
+        for (boolean runOnceFlag = !freshKeyPress; runOnceFlag || client.options.keyUse.consumeClick(); runOnceFlag = false) {
+            clientAccessor.accurateblockplacement_StartUseItemBypassDisable();
 
-            if (!oldBlock.equals(world.getBlockState(targetPlacement.getBlockPos()).getBlock())) {
-                this.lastPlacedBlockPos = targetPlacement.getBlockPos();
+            if (!oldBlock.equals(world.getBlockState(targetPlacement.getClickedPos()).getBlock())) {
+                this.lastPlacedBlockPos = targetPlacement.getClickedPos();
 
                 if (this.lastPlayerPlacedBlockPos == null) {
-                    this.lastPlayerPlacedBlockPos = player.getPos();
+                    this.lastPlayerPlacedBlockPos = player.position();
                 } else {
-                    Vec3d pos = Vec3d.of(targetPlacement.getSide().getVector());
-                    Vec3d summedLastPlayerPos = this.lastPlayerPlacedBlockPos.add(pos);
+                    Vec3 pos = Vec3.atLowerCornerOf(targetPlacement.getClickedFace().getNormal());
+                    Vec3 summedLastPlayerPos = this.lastPlayerPlacedBlockPos.add(pos);
 
-                    this.lastPlayerPlacedBlockPos = switch (targetPlacement.getSide().getAxis()) {
-                        case X -> new Vec3d(summedLastPlayerPos.x, player.getPos().y, player.getPos().z);
-                        case Y -> new Vec3d(player.getPos().x, summedLastPlayerPos.y, player.getPos().z);
-                        case Z -> new Vec3d(player.getPos().x, player.getPos().y, summedLastPlayerPos.z);
+                    this.lastPlayerPlacedBlockPos = switch (targetPlacement.getClickedFace().getAxis()) {
+                        case X -> new Vec3(summedLastPlayerPos.x, player.position().y, player.position().z);
+                        case Y -> new Vec3(player.position().x, summedLastPlayerPos.y, player.position().z);
+                        case Z -> new Vec3(player.position().x, player.position().y, summedLastPlayerPos.z);
                     };
                 }
             }
@@ -286,7 +288,7 @@ public class AccuratePlacement {
         this.lastSeenBlockPos = blockHitResult.getBlockPos();
     }
 
-    private void freshKeyPress(MinecraftClient client, Item currentItem) {
+    private void freshKeyPress(Minecraft client, Item currentItem) {
         this.lastSeenBlockPos = null;
         this.lastPlacedBlockPos = null;
         this.lastPlayerPlacedBlockPos = null;
@@ -294,9 +296,9 @@ public class AccuratePlacement {
         this.backFillList.clear();
 
         if (client.getWindow().getWidth() > 0 && client.getWindow().getHeight() > 0) {
-            this.lastFreshPressMouseRatio = new Vec3d(
-                    client.mouse.getX() / (double) client.getWindow().getWidth(),
-                    client.mouse.getY() / (double) client.getWindow().getHeight(),
+            this.lastFreshPressMouseRatio = new Vec3(
+                    client.mouseHandler.xpos() / (double) client.getWindow().getWidth(),
+                    client.mouseHandler.ypos() / (double) client.getWindow().getHeight(),
                     0.0
             );
         } else {
@@ -306,9 +308,9 @@ public class AccuratePlacement {
         this.lastItemInUse = currentItem;
     }
 
-    public Item getItemInUse(PlayerEntity player) {
-        for (Hand thisHand : Hand.values()) {
-            ItemStack itemInHand = player.getStackInHand(thisHand);
+    public Item getItemInUse(Player player) {
+        for (InteractionHand thisHand : InteractionHand.values()) {
+            ItemStack itemInHand = player.getItemInHand(thisHand);
 
             if (!itemInHand.isEmpty()) {
                 this.handOfCurrentItemInUse = thisHand;
@@ -320,17 +322,17 @@ public class AccuratePlacement {
     }
 
     public boolean isPlacementItem(Item currentItem) {
-        return (currentItem instanceof BlockItem || currentItem instanceof MiningToolItem)
-               && (!currentItem.getComponents().contains(DataComponentTypes.FOOD) || currentItem instanceof AliasedBlockItem)
-               && !doesItemHaveOverriddenUseMethod(currentItem);
+        return (currentItem instanceof BlockItem || currentItem instanceof DiggerItem)
+                && (!currentItem.components().has(DataComponents.FOOD) || currentItem instanceof ItemNameBlockItem)
+                && !doesItemHaveOverriddenUseMethod(currentItem);
     }
 
-    private boolean isInteractingWithOtherHand(PlayerEntity player, ItemStack otherHandStack) {
-        return !otherHandStack.isEmpty() && (otherHandStack.contains(DataComponentTypes.FOOD)
-                                             || doesItemHaveOverriddenUseMethod(otherHandStack.getItem())) && player.isUsingItem();
+    private boolean isInteractingWithOtherHand(Player player, ItemStack otherHandStack) {
+        return !otherHandStack.isEmpty() && (otherHandStack.has(DataComponents.FOOD)
+                || doesItemHaveOverriddenUseMethod(otherHandStack.getItem())) && player.isUsingItem();
     }
 
-    private boolean isTargetingSomethingElse(MinecraftClient client) {
-        return client.crosshairTarget != null && client.crosshairTarget.getType() != HitResult.Type.BLOCK;
+    private boolean isTargetingSomethingElse(Minecraft client) {
+        return client.hitResult != null && client.hitResult.getType() != HitResult.Type.BLOCK;
     }
 }

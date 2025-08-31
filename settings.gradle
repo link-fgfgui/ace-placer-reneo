@@ -1,16 +1,10 @@
 pluginManagement {
     repositories {
-        maven {
-            name = 'Fabric'
-            url = 'https://maven.fabricmc.net/'
-        }
-        maven {
-            name = 'LCLPNetwork Maven'
-            url = 'https://repo.lclpnet.work/repository/internal'
-        }
-        mavenCentral()
         gradlePluginPortal()
+        maven { url = 'https://maven.neoforged.net/releases' }
     }
 }
 
-rootProject.name = 'ace-placer'
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.9.0'
+}

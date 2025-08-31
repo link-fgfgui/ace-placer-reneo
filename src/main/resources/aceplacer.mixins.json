@@ -1,14 +1,15 @@
 {
   "required": true,
-  "minVersion": "0.8",
   "package": "net.clayborn.accurateblockplacement.mixin",
   "compatibilityLevel": "JAVA_21",
-  "client": [
+  "mixins": [
     "GameRendererMixin",
     "KeyBindingAccessor",
-    "MinecraftClientMixin"
-  ],
+    "MinecraftClientMixin"],
   "injectors": {
     "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
   }
 }

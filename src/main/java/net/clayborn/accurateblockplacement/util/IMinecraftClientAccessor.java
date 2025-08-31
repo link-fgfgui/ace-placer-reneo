@@ -2,7 +2,7 @@ package net.clayborn.accurateblockplacement.util;
 
 public interface IMinecraftClientAccessor {
 
-    void accurateblockplacement_DoItemUseBypassDisable();
+    void accurateblockplacement_StartUseItemBypassDisable();
 
-    int accurateblockplacement_GetItemUseCooldown();
+    int accurateblockplacement_GetRightClickDelay();
 }

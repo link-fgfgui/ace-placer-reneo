@@ -1,7 +1,7 @@
 package net.clayborn.accurateblockplacement.mixin;
 
 import net.clayborn.accurateblockplacement.util.AccuratePlacement;
-import net.minecraft.client.render.GameRenderer;
+import net.minecraft.client.renderer.GameRenderer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -15,7 +15,7 @@ public abstract class GameRendererMixin {
     private final AccuratePlacement accuratePlacement = new AccuratePlacement();
 
     @Inject(
-            method = "updateCrosshairTarget",
+            method = "pick(F)V",
             at = @At("RETURN")
     )
     private void onUpdateTargetedEntityComplete(CallbackInfo info) {
